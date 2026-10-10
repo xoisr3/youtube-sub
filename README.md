@@ -1,63 +1,118 @@
-# YouTube English Subtitles (Chrome Extension)
+# 🎬 YouTube Subtitles & Lyrics (Chrome Side Panel Extension)
 
-A Chrome extension that displays English subtitles for YouTube videos directly in the Chrome Side Panel, featuring real-time spoken voice highlighting, interactive seeking, and transcript export.
+[![Manifest V3](https://img.shields.io/badge/Manifest-V3-4285F4?style=flat-square&logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3)
+[![Platform](https://img.shields.io/badge/Platform-Chrome%20Extension-brightgreen?style=flat-square)](https://chrome.google.com)
+[![JavaScript](https://img.shields.io/badge/ES6+-Vanilla%20JS-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
+[![Zero Dependencies](https://img.shields.io/badge/Dependencies-0%20(Pure%20Vanilla)-success?style=flat-square)](#architecture)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
----
-
-## Features
-
-- 📑 **English Subtitles Only**: Automatically detects and loads available English subtitle tracks (both creator-uploaded and auto-generated English subtitles).
-- 🎙️ **Live Voice Highlighting**: Identifies the exact spoken sentence in real-time as the video plays, illuminating it with a distinctive YouTube red indicator and animated equalizer soundwave.
-- ⚡ **Interactive Seeking**: Click on any subtitle line or timestamp to immediately jump the YouTube video to that exact second.
-- 📜 **Smart Auto-scroll**: Smoothly keeps the active spoken line in view. If you scroll away to read ahead, a convenient floating *"Jump to Current Voice"* button lets you snap right back.
-- 🔍 **Real-Time Search**: Search words or phrases across the entire transcript with instant matching highlights and count indicators.
-- 💾 **Export & Copy**:
-  - Copy clean full transcript.
-  - Copy transcript with timestamps.
-  - Export and download as standard `.srt` subtitle file.
-- ⏯️ **Integrated Playback Controls**: Play, pause, skip backward/forward 5 seconds, and scrub video progress directly from the side panel.
-- 🌓 **Themes & Typography**: Built-in YouTube Dark and Light themes with dynamic font size scaling (A- / A+).
-- 🛡️ **Zero-Interference Architecture**: Operates without modifying or interfering with YouTube's on-screen video player or internal caption rendering.
+A high-performance Chrome Extension (Manifest V3) that turns YouTube closed captions into a synchronized, lyrics-style transcript stream directly inside the **Chrome Side Panel**. Features real-time voice tracking, smart sentence breaking, sub-second sync calibration, and interactive playback seeking.
 
 ---
 
-## Installation & Setup
+## ✨ Features
 
-1. Open Google Chrome.
-2. Navigate to `chrome://extensions/` in the URL bar.
-3. Enable **Developer mode** using the toggle switch in the top-right corner.
-4. Click **Load unpacked** in the top-left corner.
-5. Select the extension directory:
-   ```
-   /Users/thinh/Documents/code/youtube-sub
-   ```
-6. The extension is now installed. Pin it to your Chrome toolbar for quick access.
+- ⚡ **Dual-Engine Subtitle Pipeline**:
+  - **Primary**: Android Innertube Client fetch for pre-loading complete video captions instantly upon video load.
+  - **Secondary**: Live Network Interceptor hook (`world: "MAIN"`) capturing raw YouTube `/api/timedtext` API payloads.
+  - **Fallback**: Real-time DOM `MutationObserver` streaming live captions from YouTube's player if API tracks are restricted.
+- 🎙️ **Live Voice Tracking (Lyrics Mode)**:
+  - Tracks playback with sub-second precision (50ms sync loop).
+  - Highlights active spoken lines with an active glowing indicator and animated equalizer soundwave.
+- 🧩 **Smart Sentence Splitting Engine**:
+  - Reconstructs fragmented YouTube caption chunks into fluent, natural sentences using strict terminal punctuation detection (`.`, `?`, `!`, `…`), abbreviation handling (`Mr.`, `Dr.`, `U.S.`), and speech pauses.
+  - Toggle between **Smart Sentences** and **Raw Segments** anytime with one click.
+- ⏱️ **Audio-Sync Calibration (±0.2s)**:
+  - Built-in offset tuner to compensate for YouTube auto-caption timing delays or Bluetooth audio lag.
+- 🎯 **Interactive Seeking**:
+  - Click any subtitle line or timestamp to instantly seek the video to that exact timestamp.
+- 📜 **Intelligent Auto-Scroll**:
+  - Smoothly keeps the current spoken sentence centered in view.
+  - User-intent aware: automatically pauses auto-scroll when you scroll manually to read ahead, and shows a floating *"Jump to Current Voice"* badge to snap back.
+- 🔍 **Real-Time Transcript Search**:
+  - Instant text filtering and match count badge across long transcripts.
+- 💾 **Export & Clipboard Tools**:
+  - Copy clean full transcript text.
+  - Copy formatted transcript with timestamps.
+  - Download as standard `.srt` subtitle file.
+- ⏯️ **Built-in Mini Player Bar**:
+  - Scrub progress bar, Play/Pause, Skip ±5 seconds, and time counter directly from the side panel.
+- 🌓 **Aesthetics & Ergonomics**:
+  - Sleek Dark / Light modes matching YouTube's design system.
+  - Quick font size adjustment (`A-` / `A+`).
 
 ---
 
-## How to Use
+## 🏗️ Architecture
 
-1. Open any YouTube video (e.g. `https://www.youtube.com/watch?v=...`).
-2. Click the extension icon in Chrome or open the Chrome Side Panel.
-3. The extension connects to the YouTube video, loads the English subtitles, and starts tracking the playback in real-time.
-4. If multiple English tracks exist (e.g., creator subtitles vs. auto-generated), you can switch between them using the dropdown track selector.
-5. Click any subtitle line to jump to that moment in the video.
+The extension is built with **zero external dependencies**, leveraging modern Web APIs and Chrome Extension Manifest V3 standards:
+
+```
+┌────────────────────────────────────────────────────────┐
+│                      YouTube Tab                       │
+│  ┌───────────────────────┐  ┌───────────────────────┐  │
+│  │   content-main.js     │  │  content-isolated.js  │  │
+│  │  (world: MAIN)        │  │  (world: ISOLATED)    │  │
+│  │  - Hooks fetch & XHR  │  │  - HTML5 video bridge │  │
+│  │  - Sniffs /timedtext  │  │  - MutationObserver   │  │
+│  └───────────┬───────────┘  └───────────┬───────────┘  │
+└──────────────┼──────────────────────────┼──────────────┘
+               │ window.postMessage       │ chrome.runtime.sendMessage
+               ▼                          ▼
+┌────────────────────────────────────────────────────────┐
+│            Side Panel (sidepanel.js / html)            │
+│  - Dual-Engine Subtitle Loader (Innertube + Sniffer)   │
+│  - Natural Sentence Assembly Engine                    │
+│  - Real-Time Time Synchronization & Offset Tuner       │
+│  - Smooth Auto-Scroller with Programmatic Guard        │
+└────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 youtube-sub/
-├── manifest.json              # Chrome Manifest V3 configuration
-├── background.js              # Service worker handling side panel activation and tab events
+├── manifest.json              # Chrome Manifest V3 configuration & permissions
+├── background.js              # Service worker handling side panel activation
 ├── content/
-│   └── content-isolated.js    # Isolated content script (observes playback time & handles seeking)
+│   ├── content-main.js        # Main world script (sniffs timedtext network calls)
+│   └── content-isolated.js    # Isolated world script (video state & seeking bridge)
 ├── sidepanel/
-│   ├── sidepanel.html         # Side panel markup
-│   ├── sidepanel.css          # Modern dark/light styling and voice highlight animations
-│   └── sidepanel.js           # Subtitle loading, synchronization, search, and controls
-├── icons/                     # Extension icons (16px, 48px, 128px)
-├── generate-icons.js          # Generator script for icon assets
-└── README.md
+│   ├── sidepanel.html         # Side panel semantic layout & controls
+│   ├── sidepanel.css          # Glassmorphic dark/light UI & equalizer animations
+│   └── sidepanel.js           # Subtitle engine, sentence splitter & sync logic
+├── icons/                     # Extension branding icons (16px, 48px, 128px)
+├── .gitignore                 # Standard clean repository ignore rules
+└── README.md                  # Project documentation
 ```
+
+---
+
+## 🚀 Installation & Setup
+
+1. Clone or download this repository:
+   ```bash
+   git clone https://github.com/your-username/youtube-sub.git
+   ```
+2. Open Google Chrome and go to `chrome://extensions/`.
+3. Toggle on **Developer mode** in the top-right corner.
+4. Click **Load unpacked** in the top-left corner.
+5. Select the project directory (`youtube-sub`).
+6. Pin the extension to your Chrome toolbar for quick access!
+
+---
+
+## 💡 How to Use
+
+1. Open any video on [YouTube](https://www.youtube.com).
+2. Click the extension icon or open the **Side Panel** in Chrome.
+3. Subtitles are automatically fetched, organized into clean sentences, and highlighted in real-time as the speaker talks.
+4. Use the toolbar to search words, adjust audio offset, toggle smart sentence mode, or export transcripts to `.srt`.
+
+---
+
+## 📄 License
+
+Released under the [MIT License](LICENSE). Free for personal and educational use.

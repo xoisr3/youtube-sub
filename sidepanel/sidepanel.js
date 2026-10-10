@@ -195,20 +195,6 @@
     'mr.', 'mrs.', 'ms.', 'dr.', 'prof.', 'sr.', 'jr.', 'vs.', 'etc.', 'e.g.', 'i.e.', 'u.s.', 'u.k.', 'gen.', 'rep.', 'sen.', 'st.'
   ]);
 
-  // Trailing words that strongly indicate an incomplete thought / mid-phrase
-  const INCOMPLETE_TRAILING_WORDS = new Set([
-    'the', 'a', 'an', 'i', 'he', 'she', 'we', 'they', 'you', 'it',
-    'to', 'in', 'on', 'at', 'of', 'for', 'with', 'by', 'from', 'into', 'onto', 'about', 'between', 'through',
-    'and', 'or', 'but', 'so', 'because', 'although', 'though', 'while', 'if', 'when', 'where', 'that', 'which', 'who', 'whom', 'whose', 'as', 'than',
-    'is', 'are', 'was', 'were', 'be', 'been', 'being',
-    'have', 'has', 'had',
-    'do', 'does', 'did',
-    'will', 'would', 'shall', 'should', 'can', 'could', 'may', 'might', 'must',
-    'my', 'your', 'his', 'her', 'their', 'our', 'its',
-    'this', 'that', 'these', 'those',
-    'more', 'most', 'very', 'too', 'also'
-  ]);
-
   // Splits a single raw chunk at internal sentence boundaries if YouTube packaged
   // multiple sentences or sentence-end + next-sentence-start within the same caption card!
   function splitChunkIntoSentences(chunk) {

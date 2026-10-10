@@ -4,7 +4,6 @@
 (function () {
   let activeVideoElement = null;
   let lastReportedTime = -1;
-  let throttleTimer = null;
   let currentVideoId = getCurrentVideoId();
 
   function getCurrentVideoId() {
@@ -35,7 +34,6 @@
     if (video.dataset.ytSubAttached) return;
     video.dataset.ytSubAttached = 'true';
 
-    let lastReportedTime = -1;
     let syncInterval = null;
 
     const notifyTimeUpdate = () => {
