@@ -175,9 +175,29 @@
     }
   }
 
-  function decodeEntities(text) {
+  // Remove sound / music annotations, speaker change arrows (>>), and subtitle noise
+  function cleanSubtitleNoise(text) {
     if (!text) return '';
     return text
+      // Remove HTML tags
+      .replace(/<[^>]+>/g, '')
+      // Remove sound/music descriptions in brackets or parentheses: [Music], [applause], [upbeat music], (laughter), etc.
+      .replace(/\[\s*(?:[a-z\s_.-]*music[a-z\s_.-]*|applause|laughter|cheering|chuckle|inaudible|sigh|gasp|groan|screaming|silence|cough)\s*\]/gi, ' ')
+      .replace(/\(\s*(?:[a-z\s_.-]*music[a-z\s_.-]*|applause|laughter|cheering|chuckle|inaudible|sigh|gasp|groan|screaming|silence|cough)\s*\)/gi, ' ')
+      // Remove musical notes ♪ ♫ ♬ ♩
+      .replace(/[♪♫♬♩]/g, ' ')
+      // Remove YouTube speaker change indicators: >>, >>>, », «, or > >
+      .replace(/(?:>\s*){2,}/g, ' ')
+      .replace(/[»«]+/g, ' ')
+      .replace(/^\s*>\s*/, ' ')
+      // Collapse multiple whitespace
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function decodeEntities(text) {
+    if (!text) return '';
+    const decoded = text
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
@@ -186,22 +206,105 @@
       .replace(/&apos;/g, "'")
       .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
       .replace(/\n/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+      .replace(/\s+/g, ' ');
+    return cleanSubtitleNoise(decoded);
   }
 
   // List of abbreviations that end with a period but do NOT end a sentence
   const ABBREVIATIONS = new Set([
-    'mr.', 'mrs.', 'ms.', 'dr.', 'prof.', 'sr.', 'jr.', 'vs.', 'etc.', 'e.g.', 'i.e.', 'u.s.', 'u.k.', 'gen.', 'rep.', 'sen.', 'st.'
+    'mr.', 'mrs.', 'ms.', 'dr.', 'prof.', 'sr.', 'jr.', 'vs.', 'etc.', 'e.g.', 'i.e.', 'u.s.', 'u.k.', 'gen.', 'rep.', 'sen.', 'st.', 'inc.', 'corp.', 'co.'
   ]);
 
-  // Splits a single raw chunk at internal sentence boundaries if YouTube packaged
-  // multiple sentences or sentence-end + next-sentence-start within the same caption card!
+  // English Subject & Clause Starter Detection Regex Patterns
+  // Used to accurately segment unpunctuated or auto-generated YouTube subtitles ("Tiếng Anh - được tạo tự động")
+
+  // 1. Personal pronoun subjects and contractions
+  // Note: "I" in English is ALWAYS a subject pronoun. Any verb or adverb following "I" is a subject-predicate pair.
+  const PRONOUN_SUBJECT_REGEX = /^(?:i['’](?:m|ve|ll|d)|you['’](?:re|ve|ll|d)|he['’](?:s|ll|d)|she['’](?:s|ll|d)|it['’](?:s|ll|d)|we['’](?:re|ve|ll|d)|they['’](?:re|ve|ll|d)|i\s+[a-z]+|you\s+(?:are|were|have|had|do|did|will|would|can|could|should|must|got|gotta|have\s+to|need\s+to|want\s+to|wanna|know|see|look|think|don['’]?t|didn['’]?t|always|never|just|really|win|handle|scratch|sure|[a-z]+ed)|he\s+(?:is|was|has|had|does|did|will|would|can|could|should|said|says|wants|knows|doesn['’]?t|didn['’]?t|[a-z]+s|[a-z]+ed)|she\s+(?:is|was|has|had|does|did|will|would|can|could|should|said|says|told|doesn['’]?t|didn['’]?t|[a-z]+s|[a-z]+ed)|it\s+(?:is|was|will|would|can|could|should|has|had|means|happens|happened|depends|works|seems|feels|looks|takes|does|doesn['’]?t|didn['’]?t|[a-z]+s|[a-z]+ed)|we\s+[a-z]+|they\s+[a-z]+|am\s+i|do\s+i|did\s+i|can\s+i)\b/i;
+
+  // 2. Demonstratives and existentials
+  const DEMONSTRATIVE_EXISTENTIAL_REGEX = /^(?:that['’]s|that\s+(?:is|was|will|would|means|has|why|what|how|when|where)|this\s+(?:is|was|will|would|means|has)|there\s+(?:is|are|was|were|will|would|have|has|can|could)|there['’]s|here\s+(?:is|are)|here['’]s|these\s+(?:are|were)|those\s+(?:are|were))\b/i;
+
+  // 3. Indefinite pronouns as subject
+  const INDEFINITE_PRONOUN_REGEX = /^(?:(?:everybody|everyone|everything|somebody|someone|something|nobody|nothing|anyone|anybody|anything)(?:['’]s|\s+[a-z]+)?|no\s+one(?:\s+[a-z]+)?)\b/i;
+
+  // 4. Conjunction / discourse connector leading into a subject or clause
+  const CONJUNCTION_SUBJECT_REGEX = /^(?:and|but|so|because|or)\s+(?:then\s+)?(?:i['’](?:m|ve|ll|d)|you['’](?:re|ve|ll|d)|he['’](?:s|ll|d)|she['’](?:s|ll|d)|it['’](?:s|ll|d)|we['’](?:re|ve|ll|d)|they['’](?:re|ve|ll|d)|that['’]s|there['’]s|i|you|he|she|it|we|they|this|that|there|if|when|what|why|how|the|my|our|[a-z]+)\b/i;
+
+  // 5. Subordinate clause openers (Conditionals, Temporal, Causal)
+  const SUBORDINATE_CLAUSE_REGEX = /^(?:(?:if|when|while|as\s+long\s+as|even\s+if|even\s+though|although)\s+(?:you|i|we|they|he|she|it|there|this|that|someone|anyone|everybody|[a-z]+)|(?:because|since)\s+[a-z]+|by\s+the\s+time|instead\s+of)\b/i;
+
+  // 6. Noun phrase subject
+  const NOUN_PHRASE_SUBJECT_REGEX = /^(?:the\s+[a-z]+(?:\s+[a-z]+)?)\s+(?:is|are|was|were|will|would|can|could|has|have|do|does|did|comes|goes)\b/i;
+
+  // 7. Wh- question & interrogative openers
+  const WH_QUESTION_REGEX = /^(?:what\s+(?:is|are|was|were|do|did|does|can|could|would|will|if|happens|you|i|we|they)|what['’]s|whatever|why\s+(?:is|are|was|were|do|did|does|would|can|not)|how\s+(?:is|are|was|were|do|did|does|can|could|to|many|much)|where\s+(?:is|are|was|were|do|did)|who\s+(?:is|are|was|can|would)|who['’]s)\b/i;
+
+  // 8. Discourse markers, conversational transitions & idioms
+  const DISCOURSE_MARKER_REGEX = /^(?:in\s+my\s+(?:mind|opinion|view)|for\s+me|to\s+me|at\s+the\s+same\s+time|on\s+the\s+other\s+hand|first\s+of\s+all|the\s+(?:point|thing|truth|fact|bottom\s+line)\s+is|my\s+philosophy\s+is|as\s+a\s+matter\s+of\s+fact|at\s+the\s+end\s+of\s+the\s+day|to\s+be\s+honest|honestly|actually|never\s+say\s+never|never|always|maybe|perhaps|remember|listen|look|pay\s+attention|let['’]s|don['’]t|yeah\s+and|yes\s+and)\b/i;
+
+  // 9. Possessive subject noun phrases
+  const POSSESSIVE_SUBJECT_REGEX = /^(?:my|our|his|her|their)\s+[a-z]+\s+(?:is|was|will|would|has|had|told|said|let|requires|strictly)\b/i;
+
+  function isLikelySentenceStart(text) {
+    if (!text) return false;
+    const t = text.trim();
+    return PRONOUN_SUBJECT_REGEX.test(t) ||
+           DEMONSTRATIVE_EXISTENTIAL_REGEX.test(t) ||
+           INDEFINITE_PRONOUN_REGEX.test(t) ||
+           CONJUNCTION_SUBJECT_REGEX.test(t) ||
+           SUBORDINATE_CLAUSE_REGEX.test(t) ||
+           NOUN_PHRASE_SUBJECT_REGEX.test(t) ||
+           WH_QUESTION_REGEX.test(t) ||
+           DISCOURSE_MARKER_REGEX.test(t) ||
+           POSSESSIVE_SUBJECT_REGEX.test(t);
+  }
+
+  function isWeakSentenceStart(text) {
+    if (!text) return false;
+    const t = text.trim();
+    return /^(?:and|but|so|or|then|because|if|when|which|that|as|since|while|well|now|also|actually|meanwhile|honestly)\b/i.test(t) ||
+           /^(?:i|you|he|she|it|we|they)\b/i.test(t);
+  }
+
+  function isDanglingEnding(text) {
+    if (!text) return false;
+    const t = text.trim();
+    // Words that should not naturally end a standalone sentence (prepositions, conjunctions, aux copulas)
+    return /\b(that|of|to|with|for|at|in|on|by|and|or|but|because|if|when|whether|than|as|is|are|was|were|am|be|been|being|have|has|had|do|does|did|will|would|can|could|should|might|must)$/i.test(t);
+  }
+
+  function isSentenceEnd(text) {
+    if (!text) return false;
+    const trimmed = text.trim();
+    // Check for terminal punctuation: . ? ! … 。 ？ ！
+    const match = trimmed.match(/([a-zA-Z0-9\u00C0-\u024F\u1EA0-\u1EF9]+)?([.?!…\u3002\uFF1F\uFF01]["'\u201d\u2019\)]*)$/u);
+    if (!match) return false;
+    const wordWithPeriod = (match[1] || '').toLowerCase() + (match[2] || '');
+    if (ABBREVIATIONS.has(wordWithPeriod)) return false;
+    return true;
+  }
+
+  function formatSentenceCasing(text) {
+    if (!text) return '';
+    let trimmed = cleanSubtitleNoise(text).trim();
+    if (!trimmed) return '';
+    trimmed = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+    // Normalize English personal pronoun "I" and contractions
+    return trimmed
+      .replace(/\bi\b/g, 'I')
+      .replace(/\bi(['’](?:m|ve|ll|d))\b/gi, (_, s) => 'I' + s.toLowerCase());
+  }
+
+  // Splits a single raw chunk at internal sentence boundaries:
+  // 1. By punctuation (. ? ! …)
+  // 2. If chunk is very long without punctuation, by internal English subject/clause transitions
   function splitChunkIntoSentences(chunk) {
-    const text = (chunk.text || '').trim();
+    const text = cleanSubtitleNoise(chunk.text || '').trim();
     if (!text) return [];
 
-    const regex = /([a-zA-Z0-9\u00C0-\u024F\u1EA0-\u1EF9]+)?([.?!…]["'\u201d\u2019]?)\s+([A-Z"'\u201c\u20180-9\(\[])/gu;
+    // Step 1: Check for standard punctuation boundaries
+    const regex = /([a-zA-Z0-9\u00C0-\u024F\u1EA0-\u1EF9]+)?([.?!…\u3002\uFF1F\uFF01]["'\u201d\u2019]?)\s+([A-Z"'\u201c\u20180-9\(\[])/gu;
     const splits = [];
     let lastIndex = 0;
     let match;
@@ -227,49 +330,77 @@
       });
     }
 
-    if (splits.length <= 1) return [chunk];
+    // Step 2: For any piece that is still very long (>= 15 words) with NO punctuation,
+    // detect internal English subject/clause transitions
+    const refinedSplits = [];
+    splits.forEach((s) => {
+      const pWords = s.partText.split(/\s+/).filter(Boolean);
+      if (pWords.length < 15) {
+        refinedSplits.push(s);
+        return;
+      }
 
-    const totalChars = text.length;
+      // Check for internal subject boundaries
+      let pLastIndex = s.startChar;
+      let curWords = [];
+      let charPos = s.startChar;
+
+      for (let w = 0; w < pWords.length; w++) {
+        curWords.push(pWords[w]);
+        charPos += pWords[w].length + 1;
+
+        if (curWords.length >= 5 && w < pWords.length - 4) {
+          const remainingPart = pWords.slice(w + 1, w + 7).join(' ');
+          if (isLikelySentenceStart(remainingPart)) {
+            const cutChar = Math.min(s.endChar, charPos - 1);
+            refinedSplits.push({
+              partText: text.slice(pLastIndex, cutChar).trim(),
+              startChar: pLastIndex,
+              endChar: cutChar
+            });
+            pLastIndex = cutChar + 1;
+            curWords = [];
+          }
+        }
+      }
+
+      if (pLastIndex < s.endChar) {
+        refinedSplits.push({
+          partText: text.slice(pLastIndex, s.endChar).trim(),
+          startChar: pLastIndex,
+          endChar: s.endChar
+        });
+      }
+    });
+
+    if (refinedSplits.length <= 1) return [chunk];
+
+    const totalChars = Math.max(1, text.length);
     const chunkDur = Math.max(0.2, chunk.end - chunk.start);
 
-    return splits.map((s) => {
-      const sRatio = s.startChar / totalChars;
-      const eRatio = s.endChar / totalChars;
-      const partStart = chunk.start + chunkDur * sRatio;
-      const partEnd = chunk.start + chunkDur * eRatio;
-      return {
-        start: Math.round(partStart * 100) / 100,
-        end: Math.round(partEnd * 100) / 100,
-        duration: Math.max(0.1, partEnd - partStart),
-        text: s.partText
-      };
-    });
-  }
-
-  function isSentenceEnd(text) {
-    if (!text) return false;
-    const trimmed = text.trim();
-    // Check for terminal punctuation: . ? ! … 。 ？ ！
-    const match = trimmed.match(/([a-zA-Z0-9\u00C0-\u024F\u1EA0-\u1EF9]+)?([.?!…\u3002\uFF1F\uFF01]["'\u201d\u2019\)]*)$/u);
-    if (!match) return false;
-    const wordWithPeriod = (match[1] || '').toLowerCase() + (match[2] || '');
-    if (ABBREVIATIONS.has(wordWithPeriod)) return false;
-    return true;
-  }
-
-  function formatSentenceCasing(text) {
-    if (!text) return '';
-    const trimmed = text.trim();
-    if (!trimmed) return '';
-    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+    return refinedSplits
+      .filter((s) => s.partText && s.partText.length > 0)
+      .map((s) => {
+        const sRatio = Math.max(0, s.startChar / totalChars);
+        const eRatio = Math.min(1, s.endChar / totalChars);
+        const partStart = chunk.start + chunkDur * sRatio;
+        const partEnd = chunk.start + chunkDur * eRatio;
+        return {
+          start: Math.round(partStart * 100) / 100,
+          end: Math.round(partEnd * 100) / 100,
+          duration: Math.max(0.1, partEnd - partStart),
+          text: s.partText
+        };
+      });
   }
 
   // Merge raw subtitle chunks into complete natural sentences.
-  // STRICT RULE: ONLY break when a sentence ends (. ? ! …)
+  // Handles both cleanly punctuated transcripts AND unpunctuated auto-generated tracks ("Tiếng Anh - được tạo tự động")
+  // using English subject/clause detection, natural speech pauses, and balanced sentence length rules.
   function mergeIntoNaturalSentences(rawLines) {
     if (!Array.isArray(rawLines) || rawLines.length === 0) return [];
 
-    // Step 1: Pre-split any raw chunks that contain internal sentence terminators (. ? ! …)
+    // Step 1: Pre-split any raw chunks that contain internal sentence boundaries or long unpunctuated clauses
     const preSplitLines = [];
     rawLines.forEach((line) => {
       const splits = splitChunkIntoSentences(line);
@@ -285,8 +416,10 @@
       return lines.map((l, idx) => ({ ...l, id: idx, text: formatSentenceCasing(l.text) }));
     }
 
-    // Check if subtitle track contains any sentence punctuation (. ? ! …)
-    const hasAnySentencePunct = lines.some((l) => isSentenceEnd(l.text));
+    // Measure punctuation density across the track
+    const punctLinesCount = lines.filter((l) => isSentenceEnd(l.text)).length;
+    // Consider well-punctuated if at least 18% of lines contain terminal punctuation (. ? ! …)
+    const isWellPunctuatedTrack = (punctLinesCount / lines.length) >= 0.18;
 
     const merged = [];
     let current = {
@@ -300,19 +433,61 @@
     for (let i = 1; i < lines.length; i++) {
       const next = lines[i];
       const curText = current.text.trim();
+      const nextText = next.text.trim();
       const silenceGap = Math.max(0, next.start - current.end);
+      const curWords = curText.split(/\s+/).filter(Boolean).length;
+      const curDur = Math.max(0.1, current.end - current.start);
 
       let shouldBreak = false;
 
-      if (hasAnySentencePunct) {
-        // STRICT RULE: ONLY break when sentence ends with . ? ! …
-        if (isSentenceEnd(curText)) {
+      // 1. Definite terminal punctuation in curText (. ? ! … 。 ？ ！)
+      if (isSentenceEnd(curText)) {
+        shouldBreak = true;
+      } else if (isWellPunctuatedTrack) {
+        // Clean manual subtitles: break primarily at terminal punctuation,
+        // but protect against run-on sentences exceeding comfortable length
+        if (curWords >= 22 || curDur >= 9.0) {
+          if (silenceGap >= 0.4 || isLikelySentenceStart(nextText)) {
+            shouldBreak = true;
+          }
+        }
+        if (curWords >= 30 || curDur >= 12.0) {
           shouldBreak = true;
         }
       } else {
-        // Fallback ONLY for legacy videos with zero punctuation in the entire video:
-        // Break on long pauses >= 1.2s
-        if (silenceGap >= 1.2) {
+        // Auto-generated or unpunctuated subtitles ("Tiếng Anh - được tạo tự động"):
+        // Uses English subject & clause starter detection + audio pauses + sentence length heuristics
+        const isNextStrongStart = isLikelySentenceStart(nextText);
+        const isNextWeakStart = isWeakSentenceStart(nextText);
+        const isDangling = isDanglingEnding(curText);
+
+        if (!isDangling) {
+          // A. Natural pause in human speech (>= 0.7s) is a clear sentence boundary
+          if (silenceGap >= 0.7 && curWords >= 3) {
+            shouldBreak = true;
+          }
+          // B. Brief pause + new English subject/clause in next segment
+          else if (silenceGap >= 0.35 && isNextStrongStart && curWords >= 3) {
+            shouldBreak = true;
+          }
+          // C. Strong English subject / clause boundary when current has enough content (>= 4 words or >= 1.6s)
+          else if (isNextStrongStart && (curWords >= 4 || curDur >= 1.6)) {
+            shouldBreak = true;
+          }
+          // D. Pause with comma or dash at the end of current
+          else if (/[,;\u2013\u2014-]$/.test(curText) && (curWords >= 6 || silenceGap >= 0.25 || isNextStrongStart)) {
+            shouldBreak = true;
+          }
+          // E. Moderate length (12+ words) with weak starter or small pause
+          else if (curWords >= 12 && (isNextWeakStart || silenceGap >= 0.3)) {
+            shouldBreak = true;
+          }
+        }
+
+        // Length guardrails (prevent giant paragraphs even if dangling or fast-paced)
+        if (curWords >= 18 && (isNextWeakStart || silenceGap >= 0.2 || curDur >= 7.5)) {
+          shouldBreak = true;
+        } else if (curWords >= 26 || curDur >= 11.0) {
           shouldBreak = true;
         }
       }
@@ -1529,7 +1704,7 @@
 
   function handleLiveCaptionSegment(message) {
     if (!message || !message.text) return;
-    const text = message.text.trim();
+    const text = cleanSubtitleNoise(message.text).trim();
     if (!text) return;
 
     // If we have full pre-loaded track and no live banner, ignore live DOM segments
